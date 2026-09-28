@@ -1,0 +1,11 @@
+gradio
+requests
+numpy
+pandas
+joblib==1.6.0
+scikit-learn==1.9.0
+imbalanced-learn==0.14.2
+imblearn
+mlxtend==0.25.0
+flask
+flask-cors

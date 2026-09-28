@@ -1,0 +1,39 @@
+# =============================================================================
+# docker-compose-prod.yaml -- PROD overlay: run pre-built, versioned images.
+#
+# NOT covered by the current lab steps -- included here as a preview of
+# where this setup is headed, once the reverse-proxy step is stable. It is
+# provided for reference.
+#
+# Combined with the base file like this:
+#     docker compose -f docker-compose.yaml -f docker-compose-prod.yaml up -d
+#
+# The key difference from docker-compose-dev.yaml: there is NO `build:`
+# section and NO bind-mounted volumes here. That is deliberate, and is the
+# whole point of a "prod" file:
+#   - No `build:` means Compose will try to PULL the exact image tag named
+#     below (":1.0.0") rather than build it from source. In this lab, that
+#     tag only exists in your LOCAL Docker image cache after you have built
+#     it once via docker-compose-dev.yaml -- there is no registry to pull
+#     from. In a real deployment, that tag would instead be pushed to and
+#     pulled from a container registry, e.g.,
+#     Nexus: https://www.sonatype.com/products/sonatype-nexus-repository
+#   - No bind mounts means nginx.conf, the TLS certs, and the frontend files
+#     are not read from your host filesystem at all -- they must already be
+#     baked into the image at build time (see Dockerfile.nginx's `COPY`
+#     step). This is intentional: a production image should be a single,
+#     immutable artifact that behaves the same wherever it runs, rather than
+#     depending on files that happen to be sitting on one particular host.
+# =============================================================================
+
+services:
+  flask-gunicorn-app:
+    image: servingmlmodels-flask-gunicorn-app:1.0.0
+    restart: always
+
+  nginx:
+    image: servingmlmodels-nginx:1.0.0
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: always

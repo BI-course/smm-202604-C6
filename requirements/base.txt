@@ -1,0 +1,11 @@
+# requirements/base.txt
+requests
+numpy
+pandas
+joblib
+scikit-learn
+imbalanced-learn
+imblearn
+mlxtend
+flask
+flask-cors

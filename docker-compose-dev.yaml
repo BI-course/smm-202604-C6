@@ -1,0 +1,112 @@
+# =============================================================================
+# docker-compose-dev.yaml -- DEV overlay: local development / the lab.
+#
+# Combined with the base file like this:
+#     docker compose -f docker-compose.yaml -f docker-compose-dev.yaml up -d ...
+#
+# What this file adds on top of the base file:
+#   - `build:` instructions, so images are built locally from the Dockerfiles
+#     in this repo instead of being pulled from a registry.
+#   - Bind-mounted volumes for nginx's config/certs/frontend, so you can edit
+#     them on your host and see the change without rebuilding the image.
+#   - The extra `ubuntu-server` teaching container is used only for
+#     generating the self-signed TLS certificate and the optional SSH
+#     exercise. It plays no role in serving the API.
+# =============================================================================
+
+services:
+  flask-gunicorn-app:
+    image: servingmlmodels-flask-gunicorn-app:1.0.0
+    build:
+      context: .
+      dockerfile: ./dockerfiles/Dockerfile.flask-gunicorn-app
+    restart: always
+    # There is no `container_name` here -- deliberately. Docker Compose refuses to
+    # scale a service that has a fixed container_name (you cannot have two
+    # containers with the same name), so leaving it unset is what makes
+    # `--scale flask-gunicorn-app=2` possible at all.
+
+  nginx:
+    image: servingmlmodels-nginx:1.0.0
+    build:
+      context: .
+      dockerfile: ./dockerfiles/Dockerfile.nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Bind-mounting nginx.conf and the certs (both read-only, ":ro") means
+      # you can edit nginx.conf or regenerate the certificate on your host
+      # and have the RUNNING container see the new file immediately -- but
+      # nginx itself still needs to be told to re-read it. After changing
+      # either of these, run:
+      #     docker compose restart nginx
+      # A full rebuild of the nginx image is NOT required for either change.
+      - ./container-volumes/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx-certs:/etc/nginx/certs:ro
+      # Same idea for the frontend: this bind mount means edits to ./frontend
+      # on your host appear immediately in the running container, which is
+      # why Dockerfile.nginx's own `COPY frontend/ ...` step is effectively
+      # a fallback here (it matters for docker-compose-prod.yaml, which has
+      # no such bind mount and relies entirely on what was baked into the
+      # image at build time).
+      - nginx-frontend:/usr/share/nginx/html:ro
+    restart: always
+
+  # This is a container used as a lightweight VM for you to practice Linux
+  # commands as a student.
+  # The alternative is to use an actual VM, but that requires more resources
+  # and setup time.
+  ubuntu-server:
+    image: customized-ubuntu-server:1.0.0
+    build:
+      context: ./dockerfiles/ubuntu
+      dockerfile: Dockerfile.ubuntu
+    environment:
+      ROOT_PASSWORD: ${ROOT_PASSWORD}
+      STUDENT_PASSWORD: ${STUDENT_PASSWORD}
+    hostname: customized-ubuntu-server-smm
+    container_name: customized-ubuntu-server-smm
+    # Keeps standard input (STDIN) open for the container,
+    # even when nothing is actively attached to it.
+    # This maintains the interactive session via bash.
+    stdin_open: true
+    # A TTY provides the terminal interface that makes interactive programs
+    # work correctly. Without it, programs that expect terminal features
+    # (colors, cursor positioning, line editing) will malfunction.
+    tty: true
+    # Port binding can be added if you want to access the container's services (like SSH) from the host machine.
+    # Reminder: openssh-server (Step 1.2) is installed manually inside the
+    # running container, not baked into Dockerfile.ubuntu. It only persists
+    # in /home/student (the bind-mounted volume below); the SSH server
+    # package itself does NOT survive `docker compose down` + `up` (which
+    # recreates the container), so you will need to reinstall it if you do.
+    ports:
+      - 2222:22
+    volumes:
+      # To store the required data persistently
+      - home-student:/home/student
+
+# Create the folder specified in "device" if it doesn't exist, and ensure it has the correct permissions
+# so that the container can read/write to it without issues.
+volumes:
+  home-student:
+    driver: local # The volume will be stored locally on the host machine
+    driver_opts:
+      type: none # Binds to the path specified in "device" instead of creating a new directory/file on the host
+      o: bind # Confirms that Docker maps a directory/file on the host directly into the container
+      device: ./container-volumes/ubuntu/home-student # The path on the host machine that will be mounted into the container
+
+  nginx-certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./container-volumes/nginx/certs
+
+  nginx-frontend:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./frontend

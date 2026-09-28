@@ -1,0 +1,33 @@
+# =============================================================================
+# docker-compose.yaml -- BASE file: settings shared by every environment.
+#
+# This file alone does not build or run anything (it names images but gives
+# no `build:` instructions and no ports/volumes). It is always combined with
+# either docker-compose-dev.yaml (for the lab / local development) or
+# docker-compose-prod.yaml (for a deployed, image-only environment), using
+# Docker Compose's file-merging: the LAST file listed after `-f` wins for any
+# setting both files set (e.g. the "image:" tag), while list-like settings
+# such as "ports" and "volumes" are combined.
+# =============================================================================
+
+services:
+  flask-gunicorn-app:
+    image: servingmlmodels-flask-gunicorn-app
+    # "expose" makes port 8000 reachable by OTHER CONTAINERS on the same
+    # Docker network (specifically, nginx) -- it does NOT publish the port
+    # to your host machine. That is intentional: the only supported way to
+    # reach the Flask app from your browser is through nginx (see
+    # nginx.conf), never by calling port 8000 or a host-published port
+    # directly.
+    expose:
+      - "8000"
+
+  nginx:
+    image: servingmlmodels-nginx
+    # Wait for flask-gunicorn-app's CONTAINER to start before starting nginx.
+    # NOTE: this only waits for the container to start, not for Gunicorn
+    # inside it to be ready to accept connections -- see the sequencing
+    # advice in the lab notes for why you may still want to (re)start nginx
+    # once after scaling flask-gunicorn-app.
+    depends_on:
+      - flask-gunicorn-app

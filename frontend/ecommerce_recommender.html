@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E-Commerce Recommender</title>
+<style>
+  :root {
+    --accent: #ea580c;
+    --accent-dark: #c2410c;
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --ok-bg: #fff7ed;
+    --err-bg: #fef2f2;
+    --err-text: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06);
+    max-width: 520px;
+    width: 100%;
+    padding: 32px 32px 28px;
+  }
+  .back-link { display: inline-block; margin-bottom: 16px; color: var(--muted); text-decoration: none; font-size: 14px; }
+  .back-link:hover { color: var(--accent); }
+  .badge {
+    display: inline-block; background: var(--ok-bg); color: var(--accent-dark);
+    font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px; margin-bottom: 10px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  label .hint { font-weight: 400; color: var(--muted); }
+  input {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 14px; background: #fff; color: var(--text);
+  }
+  input:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(234,88,12,0.15);
+  }
+  button {
+    width: 100%; margin-top: 24px; padding: 12px 16px; background: var(--accent);
+    color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #fdba74; cursor: default; }
+  #result { margin-top: 20px; padding: 16px; border-radius: 10px; font-size: 14px; display: none; }
+  #result.show { display: block; }
+  #result.ok { background: var(--ok-bg); color: var(--accent-dark); }
+  #result.err { background: var(--err-bg); color: var(--err-text); }
+  ul.recs { list-style: none; margin: 10px 0 0; padding: 0; }
+  ul.recs li {
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; font-size: 14px;
+  }
+  ul.recs li:last-child { border-bottom: none; }
+  ul.recs .meta { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <a class="back-link" href="index.html">&larr; All endpoints</a>
+    <span class="badge">Association Rules</span>
+    <h1>Shopping Cart Recommender</h1>
+    <p class="lead">Calls <code>POST /api/v1/models/ecommerce-recommender/predictions</code></p>
+
+    <form id="predictForm">
+      <label for="cart">Cart SKUs <span class="hint">(comma-separated, e.g. P01, P04 or H06, H07)</span></label>
+      <input type="text" id="cart" value="P01, P04" required>
+
+      <label for="top_n">Number of Recommendations</label>
+      <input type="number" id="top_n" value="3" min="1" max="10" required>
+
+      <button type="submit" id="submitBtn">Get Recommendations</button>
+    </form>
+
+    <div id="result"></div>
+  </div>
+
+<script>
+  const protocol = window.location.protocol;                 // "http:", "https:", or "file:"
+  const hostname = window.location.hostname || "127.0.0.1";  // hostname is "" for a file:// page
+  const isSecure = protocol === "https:";
+
+  const API_ORIGIN = `${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`;
+  const API_URL = `${API_ORIGIN}/api/v1/models/ecommerce-recommender/predictions`;
+
+  // const API_URL = "http://127.0.0.1:5000/api/v1/models/ecommerce-recommender/predictions";
+
+  document.getElementById("predictForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById("submitBtn");
+    const result = document.getElementById("result");
+
+    const cartSkus = document.getElementById("cart").value
+      .split(",")
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    const payload = {
+      cart: cartSkus,
+      top_n: parseInt(document.getElementById("top_n").value),
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Fetching...";
+    result.className = "";
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Server responded ${response.status}: ${text.slice(0, 200)}`);
+      }
+      const data = await response.json();
+
+      if (data.recommendations.length === 0) {
+        result.className = "show ok";
+        result.innerHTML = `Model: ${data.model}<br><br>No rules matched this cart -- try a different SKU combination.`;
+      } else {
+        const items = data.recommendations.map(r => `
+          <li>
+            <span>${r.product_name} <span class="meta">(${r.sku})</span></span>
+            <span class="meta">conf ${r.confidence} &middot; lift ${r.lift}</span>
+          </li>`).join("");
+        result.className = "show ok";
+        result.innerHTML = `Model: ${data.model}<ul class="recs">${items}</ul>`;
+      }
+    } catch (err) {
+      result.className = "show err";
+      result.textContent = "Request failed: " + err.message +
+        " (is api.py running on http://127.0.0.1:5000 ?)";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Get Recommendations";
+    }
+  });
+</script>
+</body>
+</html>

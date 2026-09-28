@@ -1,0 +1,5 @@
+# requirements/dev.txt
+-r https://raw.githubusercontent.com/course-files/ServingMLModels/refs/heads/main/requirements/base.txt
+
+seaborn==0.13.2
+python-dotenv==1.2.2

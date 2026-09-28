@@ -1,0 +1,15 @@
+FROM nginx:1.28.1
+
+# Copy frontend into container.
+#
+# In the DEV compose file (docker-compose-dev.yaml), the "nginx-frontend"
+# volume bind-mounts ./frontend on top of this exact path at container
+# start, which means during the lab this COPY is effectively shadowed by
+# your live host files -- you can edit ./frontend and see the change
+# immediately, with no image rebuild.
+#
+# It still matters for two reasons: docker-compose-prod.yaml has NO such
+# bind mount, so in that prod file, whatever was baked in here
+# is the only copy that is actually served; and it also means this image is
+# self-contained and correct even if run without the dev overlay at all.
+COPY frontend/ /usr/share/nginx/html/

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SME Revenue Regressor</title>
+<style>
+  :root {
+    --accent: #4f46e5;
+    --accent-dark: #4338ca;
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --ok-bg: #eef2ff;
+    --err-bg: #fef2f2;
+    --err-text: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06);
+    max-width: 560px;
+    width: 100%;
+    padding: 32px 32px 28px;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 16px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .back-link:hover { color: var(--accent); }
+  .badge {
+    display: inline-block;
+    background: var(--ok-bg);
+    color: var(--accent-dark);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 16px 0 6px;
+    color: var(--text);
+  }
+  label .hint { font-weight: 400; color: var(--muted); }
+  input, select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 14px;
+    background: #fff;
+    color: var(--text);
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.15);
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button {
+    width: 100%;
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #a5a6f6; cursor: default; }
+  #result {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    display: none;
+  }
+  #result.show { display: block; }
+  #result.ok { background: var(--ok-bg); color: var(--accent-dark); }
+  #result.err { background: var(--err-bg); color: var(--err-text); }
+  #result .figure { font-size: 22px; font-weight: 700; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <a class="back-link" href="index.html">&larr; All endpoints</a>
+    <span class="badge">Regression</span>
+    <h1>SME Monthly Revenue Predictor</h1>
+    <p class="lead">Calls <code>POST /api/v1/models/sme-revenue-regressor/predictions</code></p>
+
+    <form id="predictForm">
+      <div class="row">
+        <div>
+          <label for="sector">Sector</label>
+          <select id="sector" required>
+            <option>Retail</option>
+            <option>Hospitality</option>
+            <option>Agriculture</option>
+            <option>Manufacturing</option>
+            <option>Services</option>
+            <option>Technology</option>
+          </select>
+        </div>
+        <div>
+          <label for="county">County</label>
+          <select id="county" required>
+            <option>Nairobi</option>
+            <option>Mombasa</option>
+            <option>Kisumu</option>
+            <option>Nakuru</option>
+            <option>Eldoret</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="quarter">Quarter</label>
+          <select id="quarter" required>
+            <option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option>
+          </select>
+        </div>
+        <div>
+          <label for="owner_education_level">Owner Education</label>
+          <select id="owner_education_level" required>
+            <option>Primary</option>
+            <option selected>Secondary</option>
+            <option>Certificate</option>
+            <option>Diploma</option>
+            <option>Bachelor's</option>
+            <option>Master's</option>
+            <option>Doctorate</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="business_age_years">Business Age (years)</label>
+          <input type="number" id="business_age_years" step="0.1" value="4.5" required>
+        </div>
+        <div>
+          <label for="num_employees">Number of Employees</label>
+          <input type="number" id="num_employees" value="12" required>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="monthly_marketing_spend_kes">Marketing Spend (KES)</label>
+          <input type="number" id="monthly_marketing_spend_kes" value="45000" required>
+        </div>
+        <div>
+          <label for="avg_daily_foot_traffic">Foot Traffic <span class="hint">(blank if online-only)</span></label>
+          <input type="number" id="avg_daily_foot_traffic" placeholder="e.g. 60">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="online_presence_score">Online Presence Score (0-100)</label>
+          <input type="number" id="online_presence_score" value="78" required>
+        </div>
+        <div>
+          <label for="loan_amount_kes">Loan Amount (KES)</label>
+          <input type="number" id="loan_amount_kes" value="250000" required>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="interest_rate_pct">Interest Rate (%)</label>
+          <input type="number" id="interest_rate_pct" step="0.1" value="14.5" required>
+        </div>
+        <div>
+          <label for="inflation_rate_pct">Inflation Rate (%)</label>
+          <input type="number" id="inflation_rate_pct" step="0.1" value="6.5" required>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="competitor_density">Competitor Density</label>
+          <input type="number" id="competitor_density" value="5" required>
+        </div>
+        <div>
+          <label for="customer_satisfaction_score">Satisfaction (1-5)</label>
+          <input type="number" id="customer_satisfaction_score" step="0.1" min="1" max="5" value="4.2" required>
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn">Predict Monthly Revenue</button>
+    </form>
+
+    <div id="result"></div>
+  </div>
+
+<script>
+
+  const protocol = window.location.protocol;                 // "http:", "https:", or "file:"
+  const hostname = window.location.hostname || "127.0.0.1";  // hostname is "" for a file:// page
+  const isSecure = protocol === "https:";
+
+  const API_ORIGIN = `${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`;
+  const API_URL = `${API_ORIGIN}/api/v1/models/sme-revenue-regressor/predictions`;
+
+  // const API_URL = "http://127.0.0.1:5000/api/v1/models/sme-revenue-regressor/predictions";
+
+  document.getElementById("predictForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById("submitBtn");
+    const result = document.getElementById("result");
+
+    // A blank foot-traffic field means "not applicable" (e.g. a Technology
+    // business) -- send null rather than an empty string, exactly what the
+    // pipeline's own imputer already knows how to handle.
+    const footTraffic = document.getElementById("avg_daily_foot_traffic").value;
+
+    const payload = {
+      sector: document.getElementById("sector").value,
+      county: document.getElementById("county").value,
+      quarter: document.getElementById("quarter").value,
+      owner_education_level: document.getElementById("owner_education_level").value,
+      business_age_years: parseFloat(document.getElementById("business_age_years").value),
+      num_employees: parseInt(document.getElementById("num_employees").value),
+      monthly_marketing_spend_kes: parseFloat(document.getElementById("monthly_marketing_spend_kes").value),
+      avg_daily_foot_traffic: footTraffic === "" ? null : parseFloat(footTraffic),
+      online_presence_score: parseFloat(document.getElementById("online_presence_score").value),
+      loan_amount_kes: parseFloat(document.getElementById("loan_amount_kes").value),
+      interest_rate_pct: parseFloat(document.getElementById("interest_rate_pct").value),
+      inflation_rate_pct: parseFloat(document.getElementById("inflation_rate_pct").value),
+      competitor_density: parseInt(document.getElementById("competitor_density").value),
+      customer_satisfaction_score: parseFloat(document.getElementById("customer_satisfaction_score").value),
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Predicting...";
+    result.className = "";
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Server responded ${response.status}: ${text.slice(0, 200)}`);
+      }
+      const data = await response.json();
+      result.className = "show ok";
+      result.innerHTML =
+        `Model: ${data.model}` +
+        `<div class="figure">KES ${Number(data.predicted_monthly_revenue_kes).toLocaleString()}</div>`;
+    } catch (err) {
+      result.className = "show err";
+      result.textContent = "Request failed: " + err.message +
+        " (is api.py running on http://127.0.0.1:5000 ?)";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Predict Monthly Revenue";
+    }
+  });
+</script>
+</body>
+</html>
