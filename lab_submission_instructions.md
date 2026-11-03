@@ -2,15 +2,15 @@
 
 ## Student Details and Individual Member Contributions
 
-**Name of the team on GitHub Classroom:**
+**Name of the team on GitHub Classroom:** C6
 
 **Member 1:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 168237      |
+| **Name**                                                                                                                              | Austine Namayi |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | Leg 1 (foundation and regression). Branch: https://github.com/BI-course/smm-202604-C6/tree/feature/regression-api-austine-namayi . Adapted api.py to serve our retail revenue regression pipeline (Ridge), loaded once from model/best_revenue_pipeline.joblib and never retrained, with the log1p target converted back to KES using expm1. Added a /health route, 400 JSON errors for missing or invalid fields, and an entry point that reads PORT so the same file runs locally, in Docker and on Render. The other three endpoints return 503 until their owners add their own models. Re-saved the model on scikit-learn 1.9.0 to match requirements/constraints.txt, and pinned pandas and numpy there. Learned: a saved pipeline only loads on the scikit-learn version it was saved with, so the training, Docker and Render environments must match exactly, and because the pipeline carries its own preprocessing the API itself can stay very thin. |
 
 **Member 2:**
 
