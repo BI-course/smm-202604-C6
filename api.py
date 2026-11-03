@@ -28,6 +28,7 @@ Run this file directly to start a local development server:
 import os
 
 import joblib
+import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -73,78 +74,74 @@ CORS(app, resources={r"/api/*": {"origins": [
 MODEL_DIR = "./model"
 
 regression_pipeline = joblib.load(
-    os.path.join(MODEL_DIR, "lasso_regressor_for_sme_revenue.joblib")
+    os.path.join(MODEL_DIR, "best_revenue_pipeline.joblib")
 )
 
-classification_pipeline = joblib.load(
-    os.path.join(MODEL_DIR, "svc_classifier_for_sme_credit_risk.joblib")
-)
-
-clustering_artifact = joblib.load(
-    os.path.join(MODEL_DIR, "kmeans_mall_customer_segmentation.joblib")
-)
-clustering_scaler = clustering_artifact["scaler"]
-clustering_kmeans = clustering_artifact["kmeans"]
-
-arm_artifact = joblib.load(
-    os.path.join(MODEL_DIR, "apriori_recommendation_rules.joblib")
-)
-recommendation_lookup = arm_artifact["recommendation_lookup"]
-sku_lookup = arm_artifact["sku_lookup"]
-
-print("All the four artifacts have been loaded. The API is ready.")
+def load_optional(filename):
+    """Load a sample artifact that its owner has not replaced yet.
+    Returns None instead of crashing the whole API if it cannot load."""
+    try:
+        return joblib.load(os.path.join(MODEL_DIR, filename))
+    except Exception as exc:
+        print(f"WARNING: could not load {filename}: {exc}")
+        return None
 
 
-# 1. REGRESSION -- predict monthly revenue (KES) for an SME
+classification_pipeline = load_optional("svc_classifier_for_sme_credit_risk.joblib")
+clustering_artifact = load_optional("kmeans_mall_customer_segmentation.joblib")
+arm_artifact = load_optional("apriori_recommendation_rules.joblib")
+
+clustering_scaler = clustering_artifact["scaler"] if clustering_artifact else None
+clustering_kmeans = clustering_artifact["kmeans"] if clustering_artifact else None
+recommendation_lookup = arm_artifact["recommendation_lookup"] if arm_artifact else None
+sku_lookup = arm_artifact["sku_lookup"] if arm_artifact else None
+
+print("Regression model loaded. Other artifacts load only if compatible.")
+
+
+REGRESSION_FEATURES = list(regression_pipeline.feature_names_in_)
+
+
+def bad_request(message):
+    """Return a consistent JSON error for invalid input."""
+    return jsonify({"error": message}), 400
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "regression_model_loaded": True})
+
+
+# 1. REGRESSION -- predict daily revenue (KES) for a retail store
 
 # Sample request (cURL):
-#   curl -X POST http://127.0.0.1:5000/api/v1/models/sme-revenue-regressor/predictions \
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/retail-revenue-regressor/predictions \
 #        -H "Content-Type: application/json" \
-#        -d '{"sector": "Technology", "county": "Nairobi", "quarter": "Q3",
-#             "business_age_years": 4.5, "num_employees": 12,
-#             "owner_education_level": "Secondary",
-#             "monthly_marketing_spend_kes": 45000,
-#             "avg_daily_foot_traffic": null,
-#             "online_presence_score": 78.0, "loan_amount_kes": 250000,
-#             "interest_rate_pct": 14.5, "inflation_rate_pct": 6.5,
-#             "competitor_density": 5, "customer_satisfaction_score": 4.2}'
-#
-# Sample request (PowerShell):
-#   Invoke-RestMethod -Method Post `
-#     -Uri "http://127.0.0.1:5000/api/v1/models/sme-revenue-regressor/predictions" `
-#     -ContentType "application/json" `
-#     -Body (@{sector="Technology"; county="Nairobi"; quarter="Q3";
-#              business_age_years=4.5; num_employees=12;
-#              owner_education_level="Secondary";
-#              monthly_marketing_spend_kes=45000; avg_daily_foot_traffic=$null;
-#              online_presence_score=78.0; loan_amount_kes=250000;
-#              interest_rate_pct=14.5; inflation_rate_pct=6.5;
-#              competitor_density=5; customer_satisfaction_score=4.2} | ConvertTo-Json)
-#
-# Note: avg_daily_foot_traffic is deliberately null for a Technology-sector
-# business (fully online -- foot traffic is structurally not applicable, not
-# missing at random). The pipeline's own imputer handles the null value; nothing
-# in this file needs to know that rule.
-@app.route("/api/v1/models/sme-revenue-regressor/predictions", methods=["POST"])
+#        -d '{"store_format": "Supermarket", "location_type": "Mall",
+#             "delivery_available": "Yes", "store_size_category": "Medium",
+#             "store_age_years": 0.5, "store_size_sqm": 250.0,
+#             "promotions_active": 2, "footfall_count": 450.0,
+#             "online_order_count": 28.0, "avg_basket_size_kes": 950.0}'
+@app.route("/api/v1/models/retail-revenue-regressor/predictions", methods=["POST"])
 def predict_revenue():
-    payload = request.get_json()
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return bad_request("Request body must be a JSON object.")
+    missing = [c for c in REGRESSION_FEATURES if c not in payload]
+    if missing:
+        return bad_request("Missing required fields: " + ", ".join(missing))
+    input_row = pd.DataFrame([payload])[REGRESSION_FEATURES]
 
-    # Build a one-row DataFrame straight from the JSON body. No manual
-    # label-encoding, no manual date parsing, no manual column reordering, etc. --
-    # the pipeline's ColumnTransformer already knows which columns it expects
-    # and how to preprocess each one.
-    input_row = pd.DataFrame([payload])
-
-    predicted_log_revenue = regression_pipeline.predict(input_row)[0]
-    # The pipeline was trained on log1p(revenue) because revenue was
-    # right-skewed; we invert that single transformation here to report the
-    # predictions in KES.
-    import numpy as np
+    try:
+        predicted_log_revenue = regression_pipeline.predict(input_row)[0]
+    except ValueError as exc:
+        return bad_request(f"Could not score this input: {exc}")
+    # The pipeline predicts log1p(revenue); np.expm1 converts back to KES.
     predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
 
     return jsonify({
-        "predicted_monthly_revenue_kes": round(predicted_revenue_kes, 2),
-        "model": "Lasso Regressor",
+        "predicted_daily_revenue_kes": round(predicted_revenue_kes, 2),
+        "model": "Ridge Regressor",
     })
 
 
@@ -170,6 +167,8 @@ def predict_revenue():
 # internally; this route does not need special code for it.
 @app.route("/api/v1/models/sme-credit-risk-classifier/predictions", methods=["POST"])
 def predict_credit_risk():
+    if classification_pipeline is None:
+        return jsonify({"error": "Classification model not available yet"}), 503
     payload = request.get_json()
     input_row = pd.DataFrame([payload])
 
@@ -202,6 +201,8 @@ def predict_credit_risk():
 # three numeric fields are used exactly as the client sends them.
 @app.route("/api/v1/models/mall-customer-segmenter/predictions", methods=["POST"])
 def predict_customer_segment():
+    if clustering_kmeans is None:
+        return jsonify({"error": "Clustering model not available yet"}), 503
     payload = request.get_json()
     input_row = pd.DataFrame([payload])
 
@@ -234,6 +235,8 @@ def predict_customer_segment():
 # for the rules again.
 @app.route("/api/v1/models/ecommerce-recommender/predictions", methods=["POST"])
 def recommend_products():
+    if recommendation_lookup is None:
+        return jsonify({"error": "Recommender model not available yet"}), 503
     payload = request.get_json()
     cart = set(payload.get("cart", []))
     top_n = int(payload.get("top_n", 3))
@@ -268,15 +271,6 @@ def recommend_products():
 # Entry point
 # -----------------------------------------------------------------------
 if __name__ == "__main__":
-    # Development server. debug=True gives auto-reload and an interactive
-    # debugger on errors -- convenient in class, but NEVER use debug=True in
-    # a deployed/public environment (it can expose a remote code execution
-    # console to anyone who can reach the server).
-    app.run(debug=True)
-
-    # Production-style alternative (no debugger, no auto-reload):
-    # app.run(debug=False, host="0.0.0.0", port=5000)
-
-    # HTTPS/TLS alternative for local development (requires a self-signed
-    # certificate; see app_server_reverse_proxy_server_setup.md):
-    # app.run(debug=False, ssl_context=("cert.pem", "key.pem"))
+    # Render and Docker supply the port through the PORT environment variable.
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
