@@ -16,9 +16,9 @@
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 150739 |
+| **Name**                                                                                                                              | Emma Karanja |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |Branch link: https://github.com/BI-course/smm-202604-C6/tree/feature/classification-api-emma-karanja . Classification API Integration: Integrated the Corporate Financial Distress Risk classification model into the Flask API. Added the Tuned Logistic Regression pipeline (`distress_risk_pipeline.joblib`). Implemented the classification prediction endpoint with input validation, returning predicted distress categories (Healthy, Watch, Distressed) and their probabilities. Resolved model compatibility issues by saving the pipeline with specified package versions. Successfully tested the endpoint with Postman, achieving a 200 OK response. Learning outcome: Gained experience in integrating a machine learning pipeline into a Flask API, validating input, returning multiclass predictions, and addressing model compatibility.|
 
 **Member 3:**
 
