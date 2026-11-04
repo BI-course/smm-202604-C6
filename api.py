@@ -87,7 +87,7 @@ def load_optional(filename):
         return None
 
 
-classification_pipeline = load_optional("svc_classifier_for_sme_credit_risk.joblib")
+classification_pipeline = load_optional("distress_risk_pipeline.joblib")
 clustering_artifact = load_optional("kmeans_mall_customer_segmentation.joblib")
 arm_artifact = load_optional("apriori_recommendation_rules.joblib")
 
@@ -165,24 +165,56 @@ def predict_revenue():
 # more often unsecured (structural missingness, not missing at random) --
 # again, the pipeline's imputer + missingness indicator already handles this
 # internally; this route does not need special code for it.
-@app.route("/api/v1/models/sme-credit-risk-classifier/predictions", methods=["POST"])
-def predict_credit_risk():
-    if classification_pipeline is None:
-        return jsonify({"error": "Classification model not available yet"}), 503
-    payload = request.get_json()
-    input_row = pd.DataFrame([payload])
+# 2. CLASSIFICATION -- predict corporate financial distress risk
 
-    predicted_class = classification_pipeline.predict(input_row)[0]
-    predicted_probabilities = classification_pipeline.predict_proba(input_row)[0]
-    class_labels = classification_pipeline.named_steps["model"].classes_
+CLASSIFICATION_FEATURES = [
+    "industry_sector",
+    "listing_status",
+    "credit_rating_band",
+    "audit_going_concern_flag",
+    "years_in_operation",
+    "num_employees",
+    "debt_to_equity_ratio",
+    "current_ratio",
+    "interest_coverage_ratio",
+    "revenue_growth_pct",
+    "net_profit_margin_pct",
+    "working_capital_to_assets_ratio",
+    "macroeconomic_interest_rate_pct",
+]
+@app.route("/api/v1/models/corporate-financial-distress-classifier/predictions", methods=["POST"])
+def predict_distress_risk():
+    if classification_pipeline is None:
+        return jsonify({"error": "Classification model not available"}), 503
+
+    payload = request.get_json(silent=True)
+
+    if not isinstance(payload, dict):
+        return bad_request("Request body must be a JSON object.")
+
+    missing = [c for c in CLASSIFICATION_FEATURES if c not in payload]
+
+    if missing:
+        return bad_request("Missing required fields: " + ", ".join(missing))
+
+    input_row = pd.DataFrame([payload])[CLASSIFICATION_FEATURES]
+
+    try:
+        predicted_class = classification_pipeline.predict(input_row)[0]
+        predicted_probabilities = classification_pipeline.predict_proba(input_row)[0]
+    except ValueError as exc:
+        return bad_request(f"Could not score this input: {exc}")
+
+    class_labels = classification_pipeline.classes_
 
     return jsonify({
-        "predicted_credit_risk_category": str(predicted_class),
+        "predicted_distress_risk_category": str(predicted_class),
         "class_probabilities": {
             str(label): round(float(prob), 4)
             for label, prob in zip(class_labels, predicted_probabilities)
         },
-        "model": "Support Vector Classifier (tuned, SMOTE-resampled at training only)",
+        "model": "Tuned Logistic Regression",
+        "note": "Decision-support only; human review required."
     })
 
 
