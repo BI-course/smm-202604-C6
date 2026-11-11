@@ -88,6 +88,7 @@ def load_optional(filename):
 
 
 classification_pipeline = load_optional("distress_risk_pipeline.joblib")
+kmeans_pipeline = load_optional("kmeans_cluster_pipeline.joblib")
 clustering_artifact = load_optional("kmeans_mall_customer_segmentation.joblib")
 arm_artifact = load_optional("apriori_recommendation_rules.joblib")
 
@@ -302,7 +303,27 @@ def recommend_products():
 # -----------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# K-MEANS CUSTOMER SEGMENTATION ENDPOINT
+# -----------------------------------------------------------------------------
+@app.route("/api/v1/models/customer-segmentation/predict", methods=["POST"])
+def predict_customer_segmentation():
+    if kmeans_pipeline is None:
+        return bad_request("Customer segmentation model not available")
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return bad_request("Request body must be a JSON object.")
+
+    try:
+        input_row = pd.DataFrame([payload])
+        predicted_cluster = kmeans_pipeline.predict(input_row)[0]
+        return jsonify({"cluster": int(predicted_cluster)})
+    except Exception as e:
+        return bad_request(f"Could not score this input: {e}")
 if __name__ == "__main__":
     # Render and Docker supply the port through the PORT environment variable.
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
+
+   
