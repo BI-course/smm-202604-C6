@@ -71,47 +71,54 @@ CORS(app, resources={r"/api/*": {"origins": [
 # single API call, which is slow and pointless -- the fitted model never
 # changes while the server is running.
 # -----------------------------------------------------------------------
-MODEL_DIR = "./model"
 
+from pathlib import Path
+import joblib
+
+MODEL_DIR = Path(__file__).resolve().parent / "model"
+
+# Load all four artifacts once when the API starts.
 regression_pipeline = joblib.load(
-    os.path.join(MODEL_DIR, "best_revenue_pipeline.joblib")
+    MODEL_DIR / "best_revenue_pipeline.joblib"
 )
 
-def load_optional(filename):
-    """Load a sample artifact that its owner has not replaced yet.
-    Returns None instead of crashing the whole API if it cannot load."""
-    try:
-        return joblib.load(os.path.join(MODEL_DIR, filename))
-    except Exception as exc:
-        print(f"WARNING: could not load {filename}: {exc}")
-        return None
+classification_pipeline = joblib.load(
+    MODEL_DIR / "distress_risk_pipeline.joblib"
+)
 
+# The bundle holds the scaler, the K-Means model, the 4 feature names and the
+# human-readable segment names, all saved together.
+clustering_bundle = joblib.load(
+    MODEL_DIR / "customer_segmentation_bundle.joblib"
+)
 
-classification_pipeline = load_optional("distress_risk_pipeline.joblib")
-kmeans_pipeline = load_optional("kmeans_cluster_pipeline.joblib")
-clustering_artifact = load_optional("kmeans_mall_customer_segmentation.joblib")
-arm_artifact = load_optional("apriori_recommendation_rules.joblib")
+arm_artifact = joblib.load(
+    MODEL_DIR / "recommendation_rules_pipeline.joblib"
+)
 
-clustering_scaler = clustering_artifact["scaler"] if clustering_artifact else None
-clustering_kmeans = clustering_artifact["kmeans"] if clustering_artifact else None
-recommendation_lookup = arm_artifact["recommendation_lookup"] if arm_artifact else None
-sku_lookup = arm_artifact["sku_lookup"] if arm_artifact else None
+# The recommender artifact is a dictionary, not a sklearn Pipeline.
+recommendation_lookup = arm_artifact["recommendation_lookup"]
+item_lookup = arm_artifact["item_lookup"]
 
-print("Regression model loaded. Other artifacts load only if compatible.")
-
-
-REGRESSION_FEATURES = list(regression_pipeline.feature_names_in_)
+print("All four model artifacts loaded successfully.")
 
 
 def bad_request(message):
-    """Return a consistent JSON error for invalid input."""
+    """Return a consistent JSON error (HTTP 400) for invalid input."""
     return jsonify({"error": message}), 400
 
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "regression_model_loaded": True})
-
+    return jsonify({
+        "status": "ok",
+        "models_loaded": {
+            "regression": regression_pipeline is not None,
+            "classification": classification_pipeline is not None,
+            "clustering": clustering_bundle is not None,
+            "recommender": recommendation_lookup is not None
+        }
+    }), 200
 
 # 1. REGRESSION -- predict daily revenue (KES) for a retail store
 
@@ -123,27 +130,36 @@ def health():
 #             "store_age_years": 0.5, "store_size_sqm": 250.0,
 #             "promotions_active": 2, "footfall_count": 450.0,
 #             "online_order_count": 28.0, "avg_basket_size_kes": 950.0}'
-@app.route("/api/v1/models/retail-revenue-regressor/predictions", methods=["POST"])
+REGRESSION_FEATURES = list(regression_pipeline.feature_names_in_)
+
+@app.route(
+    "/api/v1/models/retail-revenue-regressor/predictions",
+    methods=["POST"]
+)
 def predict_revenue():
     payload = request.get_json(silent=True)
+
     if not isinstance(payload, dict):
         return bad_request("Request body must be a JSON object.")
-    missing = [c for c in REGRESSION_FEATURES if c not in payload]
+
+    missing = [f for f in REGRESSION_FEATURES if f not in payload]
     if missing:
         return bad_request("Missing required fields: " + ", ".join(missing))
+
     input_row = pd.DataFrame([payload])[REGRESSION_FEATURES]
 
     try:
+        # JSON whole numbers (e.g. 28) arrive as ints, but the pipeline was fitted on floats.
+        input_row["online_order_count"] = input_row["online_order_count"].astype("float64")
         predicted_log_revenue = regression_pipeline.predict(input_row)[0]
-    except ValueError as exc:
+        predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
+    except (ValueError, TypeError) as exc:
         return bad_request(f"Could not score this input: {exc}")
-    # The pipeline predicts log1p(revenue); np.expm1 converts back to KES.
-    predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
 
     return jsonify({
         "predicted_daily_revenue_kes": round(predicted_revenue_kes, 2),
-        "model": "Ridge Regressor",
-    })
+        "model": "Ridge Regressor"
+    }), 200
 
 
 # 2. CLASSIFICATION -- predict SME credit risk category (Low/Medium/High)
@@ -167,7 +183,6 @@ def predict_revenue():
 # again, the pipeline's imputer + missingness indicator already handles this
 # internally; this route does not need special code for it.
 # 2. CLASSIFICATION -- predict corporate financial distress risk
-
 CLASSIFICATION_FEATURES = [
     "industry_sector",
     "listing_status",
@@ -181,20 +196,20 @@ CLASSIFICATION_FEATURES = [
     "revenue_growth_pct",
     "net_profit_margin_pct",
     "working_capital_to_assets_ratio",
-    "macroeconomic_interest_rate_pct",
+    "macroeconomic_interest_rate_pct"
 ]
-@app.route("/api/v1/models/corporate-financial-distress-classifier/predictions", methods=["POST"])
-def predict_distress_risk():
-    if classification_pipeline is None:
-        return jsonify({"error": "Classification model not available"}), 503
 
+@app.route(
+    "/api/v1/models/corporate-financial-distress-classifier/predictions",
+    methods=["POST"]
+)
+def predict_distress_risk():
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
         return bad_request("Request body must be a JSON object.")
 
-    missing = [c for c in CLASSIFICATION_FEATURES if c not in payload]
-
+    missing = [f for f in CLASSIFICATION_FEATURES if f not in payload]
     if missing:
         return bad_request("Missing required fields: " + ", ".join(missing))
 
@@ -202,22 +217,22 @@ def predict_distress_risk():
 
     try:
         predicted_class = classification_pipeline.predict(input_row)[0]
-        predicted_probabilities = classification_pipeline.predict_proba(input_row)[0]
-    except ValueError as exc:
+        probabilities = classification_pipeline.predict_proba(input_row)[0]
+    except (ValueError, TypeError) as exc:
         return bad_request(f"Could not score this input: {exc}")
-
-    class_labels = classification_pipeline.classes_
 
     return jsonify({
         "predicted_distress_risk_category": str(predicted_class),
         "class_probabilities": {
             str(label): round(float(prob), 4)
-            for label, prob in zip(class_labels, predicted_probabilities)
+            for label, prob in zip(
+                classification_pipeline.classes_,
+                probabilities
+            )
         },
         "model": "Tuned Logistic Regression",
         "note": "Decision-support only; human review required."
-    })
-
+    }), 200
 
 # 3. CLUSTERING -- assign a new mall customer to an existing segment
 
@@ -232,20 +247,41 @@ def predict_distress_risk():
 # two-object pattern the clustering notebook persisted together for this
 # reason. There is still no manual encoding or feature engineering: the
 # three numeric fields are used exactly as the client sends them.
-@app.route("/api/v1/models/mall-customer-segmenter/predictions", methods=["POST"])
-def predict_customer_segment():
-    if clustering_kmeans is None:
-        return jsonify({"error": "Clustering model not available yet"}), 503
-    payload = request.get_json()
-    input_row = pd.DataFrame([payload])
+CLUSTERING_FEATURES = clustering_bundle["features"]
+# ['recency_days', 'frequency_per_year', 'avg_order_value_kes', 'num_categories_purchased']
 
-    scaled_input = clustering_scaler.transform(input_row)
-    assigned_cluster = int(clustering_kmeans.predict(scaled_input)[0])
+@app.route(
+    "/api/v1/models/customer-segmentation/predict",
+    methods=["POST"]
+)
+def predict_customer_segmentation():
+    payload = request.get_json(silent=True)
+
+    if not isinstance(payload, dict):
+        return bad_request("Request body must be a JSON object.")
+
+    missing = [f for f in CLUSTERING_FEATURES if f not in payload]
+    if missing:
+        return bad_request("Missing required fields: " + ", ".join(missing))
+
+    input_row = pd.DataFrame([payload])[CLUSTERING_FEATURES]
+
+    try:
+        input_row = input_row.astype("float64")
+        # K-Means was trained on standardized data, so scale first, then predict.
+        scaled_row = clustering_bundle["scaler"].transform(input_row)
+        raw_cluster = int(clustering_bundle["kmeans"].predict(scaled_row)[0])
+    except (ValueError, TypeError) as exc:
+        return bad_request(f"Could not score this input: {exc}")
+
+    # Translate K-Means' raw label into the numbered segment used in the report.
+    cluster_id = clustering_bundle["label_map"][raw_cluster]
 
     return jsonify({
-        "assigned_cluster": assigned_cluster,
-        "model": "K-Means (k=5, standardized features)",
-    })
+        "cluster": cluster_id,
+        "segment_name": clustering_bundle["segment_names"][cluster_id],
+        "model": "K-Means Customer Segmentation"
+    }), 200
 
 
 # 4. ASSOCIATION RULE MINING -- recommend products for a shopping cart
@@ -266,64 +302,89 @@ def predict_customer_segment():
 # endpoint performs the exact same lookup+rank step a production recommender
 # microservice would perform on every incoming request; it does not mine
 # for the rules again.
-@app.route("/api/v1/models/ecommerce-recommender/predictions", methods=["POST"])
-def recommend_products():
-    if recommendation_lookup is None:
-        return jsonify({"error": "Recommender model not available yet"}), 503
-    payload = request.get_json()
-    cart = set(payload.get("cart", []))
-    top_n = int(payload.get("top_n", 3))
-
-    candidates = {}
-    for antecedent, consequent_list in recommendation_lookup.items():
-        if antecedent.issubset(cart):
-            for sku, confidence, lift in consequent_list:
-                if sku not in cart:
-                    if sku not in candidates or confidence > candidates[sku][0]:
-                        candidates[sku] = (confidence, lift)
-
-    ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:top_n]
-    recommendations = [
-        {
-            "sku": str(sku),
-            "product_name": sku_lookup.loc[sku, "product_name"],
-            "confidence": round(float(confidence), 3),
-            "lift": round(float(lift), 2),
-        }
-        for sku, (confidence, lift) in ranked
-    ]
-
-    return jsonify({
-        "cart": sorted(cart),
-        "recommendations": recommendations,
-        "model": "Apriori association rules, cleaned + precomputed lookup",
-    })
-
-
-# -----------------------------------------------------------------------
-# Entry point
-# -----------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# K-MEANS CUSTOMER SEGMENTATION ENDPOINT
-# -----------------------------------------------------------------------------
-@app.route("/api/v1/models/customer-segmentation/predict", methods=["POST"])
-def predict_customer_segmentation():
-    if kmeans_pipeline is None:
-        return bad_request("Customer segmentation model not available")
-
+@app.route(
+    "/api/v1/models/content-recommender/recommendations",
+    methods=["POST"]
+)
+def recommend_content():
     payload = request.get_json(silent=True)
+
     if not isinstance(payload, dict):
         return bad_request("Request body must be a JSON object.")
 
+    watched_items = payload.get("watched_items")
+
+    if not isinstance(watched_items, list) or not watched_items:
+        return bad_request(
+            "'watched_items' must be a non-empty list of show IDs."
+        )
+
+    if not all(isinstance(item, str) for item in watched_items):
+        return bad_request("Every watched item ID must be a string.")
+
+    # Confirm the IDs exist in the recommender's item lookup.
+    known_items = set(item_lookup.index.astype(str))
+    unknown_items = set(watched_items) - known_items
+
+    if unknown_items:
+        return bad_request(
+            "Unknown show IDs: " + ", ".join(sorted(unknown_items))
+        )
+
     try:
-        input_row = pd.DataFrame([payload])
-        predicted_cluster = kmeans_pipeline.predict(input_row)[0]
-        return jsonify({"cluster": int(predicted_cluster)})
-    except Exception as e:
-        return bad_request(f"Could not score this input: {e}")
+        top_n = int(payload.get("top_n", 3))
+    except (ValueError, TypeError):
+        return bad_request("'top_n' must be an integer.")
+
+    if not 1 <= top_n <= 10:
+        return bad_request("'top_n' must be between 1 and 10.")
+
+    watched_set = set(watched_items)
+    candidates = {}
+
+    # Find rules whose antecedents are contained in the watch history.
+    for antecedent, consequent_list in recommendation_lookup.items():
+        if antecedent.issubset(watched_set):
+            for show_id, confidence, lift in consequent_list:
+                show_id = str(show_id)
+
+                if show_id not in watched_set:
+                    # Keep the strongest confidence for each candidate.
+                    if (
+                        show_id not in candidates
+                        or confidence > candidates[show_id][0]
+                    ):
+                        candidates[show_id] = (confidence, lift)
+
+    ranked = sorted(
+        candidates.items(),
+        key=lambda item: (item[1][0], item[1][1]),
+        reverse=True
+    )[:top_n]
+
+    recommendations = []
+
+    for show_id, (confidence, lift) in ranked:
+        recommendations.append({
+            "show_id": show_id,
+            "item_name": item_lookup.loc[show_id, "item_name"],
+            "confidence": round(float(confidence), 4),
+            "lift": round(float(lift), 4)
+        })
+
+    return jsonify({
+        "watched_items": sorted(watched_set),
+        "recommendations": recommendations,
+        "message": (
+            "Recommendations generated."
+            if recommendations
+            else "No matching recommendation rules were found."
+        ),
+        "model": "Apriori Association Rules"
+    }), 200
+
+
 if __name__ == "__main__":
     # Render and Docker supply the port through the PORT environment variable.
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
-
-   
