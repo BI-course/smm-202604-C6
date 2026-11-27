@@ -86,8 +86,10 @@ classification_pipeline = joblib.load(
     MODEL_DIR / "distress_risk_pipeline.joblib"
 )
 
-kmeans_pipeline = joblib.load(
-    MODEL_DIR / "kmeans_cluster_pipeline.joblib"
+# The bundle holds the scaler, the K-Means model, the 4 feature names and the
+# human-readable segment names, all saved together.
+clustering_bundle = joblib.load(
+    MODEL_DIR / "customer_segmentation_bundle.joblib"
 )
 
 arm_artifact = joblib.load(
@@ -101,6 +103,11 @@ item_lookup = arm_artifact["item_lookup"]
 print("All four model artifacts loaded successfully.")
 
 
+def bad_request(message):
+    """Return a consistent JSON error (HTTP 400) for invalid input."""
+    return jsonify({"error": message}), 400
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
@@ -108,7 +115,7 @@ def health():
         "models_loaded": {
             "regression": regression_pipeline is not None,
             "classification": classification_pipeline is not None,
-            "clustering": kmeans_pipeline is not None,
+            "clustering": clustering_bundle is not None,
             "recommender": recommendation_lookup is not None
         }
     }), 200
@@ -142,6 +149,8 @@ def predict_revenue():
     input_row = pd.DataFrame([payload])[REGRESSION_FEATURES]
 
     try:
+        # JSON whole numbers (e.g. 28) arrive as ints, but the pipeline was fitted on floats.
+        input_row["online_order_count"] = input_row["online_order_count"].astype("float64")
         predicted_log_revenue = regression_pipeline.predict(input_row)[0]
         predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
     except (ValueError, TypeError) as exc:
@@ -238,10 +247,8 @@ def predict_distress_risk():
 # two-object pattern the clustering notebook persisted together for this
 # reason. There is still no manual encoding or feature engineering: the
 # three numeric fields are used exactly as the client sends them.
-CLUSTERING_FEATURES = [
-    "Annual_Income_k_USD",
-    "Spending_Score_1_100"
-]
+CLUSTERING_FEATURES = clustering_bundle["features"]
+# ['recency_days', 'frequency_per_year', 'avg_order_value_kes', 'num_categories_purchased']
 
 @app.route(
     "/api/v1/models/customer-segmentation/predict",
@@ -260,12 +267,19 @@ def predict_customer_segmentation():
     input_row = pd.DataFrame([payload])[CLUSTERING_FEATURES]
 
     try:
-        predicted_cluster = kmeans_pipeline.predict(input_row)[0]
+        input_row = input_row.astype("float64")
+        # K-Means was trained on standardized data, so scale first, then predict.
+        scaled_row = clustering_bundle["scaler"].transform(input_row)
+        raw_cluster = int(clustering_bundle["kmeans"].predict(scaled_row)[0])
     except (ValueError, TypeError) as exc:
         return bad_request(f"Could not score this input: {exc}")
 
+    # Translate K-Means' raw label into the numbered segment used in the report.
+    cluster_id = clustering_bundle["label_map"][raw_cluster]
+
     return jsonify({
-        "cluster": int(predicted_cluster),
+        "cluster": cluster_id,
+        "segment_name": clustering_bundle["segment_names"][cluster_id],
         "model": "K-Means Customer Segmentation"
     }), 200
 
@@ -370,4 +384,7 @@ def recommend_content():
     }), 200
 
 
-   
+if __name__ == "__main__":
+    # Render and Docker supply the port through the PORT environment variable.
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
