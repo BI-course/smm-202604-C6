@@ -38,15 +38,15 @@
 
 **Member 5:**
 
-| **Details**                                                                                                                           | **Comment** |
-|:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Details**                                                                                                                           | **Comment**                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|:--------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Student ID**                                                                                                                        | 168663                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Name**                                                                                                                              | Maureen Wangui Waweru                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | Branch links: 1. https://github.com/BI-course/smm-202604-C6/tree/feature/api-fixes-maureen-waweru, 2. https://github.com/BI-course/smm-202604-C6/tree/feature/frontend-gradio-streamlit-maureen-waweru. I completed the Advanced tier by building a single-page HTML front end, a Gradio app deployed as a Hugging Face Space, and a Streamlit app deployed on Streamlit Community Cloud, each with one tab per model and all loading the same saved artifacts from model/. I also fixed api.py by restoring the bad_request error handler, rewriting the clustering endpoint to use the saved customer segmentation bundle (scaler, K-Means and segment names), converting whole-number inputs to floats in the regression endpoint, and restoring the start-up block, then deployed the API to Render. From this I learned how to deploy one set of saved models to several platforms, and that matching the exact library versions and input types used in training matters for reliable predictions. |
 
 ## Chosen Level of Difficulty
 
-**Specify the chosen level of difficulty** (baseline, intermediate, or advanced):
+**Specify the chosen level of difficulty** (baseline, intermediate, or advanced): Advanced
 
 ## Video Demonstration
 
@@ -68,11 +68,11 @@ Note that you are required to submit the link to the video and NOT the video its
 
 Fill in only the rows that apply to your chosen difficulty level (see Part C below). Leave a row blank if your tier does not require that deployment target.
 
-| **Deployment target**                             | **URL** |
-|:--------------------------------------------------|:--------|
-| Render (the full `api.py`, all endpoints)         |         |
-| Hugging Face Space (Gradio, one tab per model)    |         |
-| Streamlit Community Cloud app (one tab per model) |         |
+| **Deployment target**                             | **URL**                |
+|:--------------------------------------------------|:-----------------------|
+| Render (the full `api.py`, all endpoints)         | https://labproj-smm-202604-c6.onrender.com                       |
+| Hugging Face Space (Gradio, one tab per model)    | https://huggingface.co/spaces/Maureeeeee/LabProj-C6                       |
+| Streamlit Community Cloud app (one tab per model) | http://127.0.0.1:7860/ |
 
 ---
 
