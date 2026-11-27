@@ -72,7 +72,7 @@ Fill in only the rows that apply to your chosen difficulty level (see Part C bel
 |:--------------------------------------------------|:-----------------------|
 | Render (the full `api.py`, all endpoints)         | https://labproj-smm-202604-c6.onrender.com                       |
 | Hugging Face Space (Gradio, one tab per model)    | https://huggingface.co/spaces/Maureeeeee/LabProj-C6                       |
-| Streamlit Community Cloud app (one tab per model) | http://127.0.0.1:7860/ |
+| Streamlit Community Cloud app (one tab per model) | https://smm-202604-c6-maureen.streamlit.app/|
 
 ---
 
