@@ -68,11 +68,11 @@ Note that you are required to submit the link to the video and NOT the video its
 
 Fill in only the rows that apply to your chosen difficulty level (see Part C below). Leave a row blank if your tier does not require that deployment target.
 
-| **Deployment target**                             | **URL**                |
-|:--------------------------------------------------|:-----------------------|
-| Render (the full `api.py`, all endpoints)         | https://labproj-smm-202604-c6.onrender.com                       |
-| Hugging Face Space (Gradio, one tab per model)    | https://huggingface.co/spaces/Maureeeeee/LabProj-C6                       |
-| Streamlit Community Cloud app (one tab per model) | https://smm-202604-c6-maureen.streamlit.app/|
+| **Deployment target**                             | **URL**                                             |
+|:--------------------------------------------------|:----------------------------------------------------|
+| Render (the full `api.py`, all endpoints)         | https://labproj-smm-202604-c6.onrender.com/health   |
+| Hugging Face Space (Gradio, one tab per model)    | https://huggingface.co/spaces/Maureeeeee/LabProj-C6 |
+| Streamlit Community Cloud app (one tab per model) | https://smm-202604-c6-maureen.streamlit.app/        |
 
 ---
 
