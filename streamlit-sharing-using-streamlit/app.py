@@ -1,194 +1,189 @@
-import streamlit as st
+"""
+Streamlit app -- one tab per model (Advanced tier, Leg 5).
+
+Serves the SAME saved artifacts as api.py and the Gradio Space. Nothing is
+retrained here: models are loaded once and only .predict() is called.
+"""
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
-import os
+import streamlit as st
+
+# model/ sits at the REPOSITORY ROOT, one level above this folder. Building the
+# path from this file's location works no matter where Streamlit is started.
+MODEL_DIR = Path(__file__).resolve().parents[1] / "model"
+
 
 # -----------------------------------------------------------------------
-# Load all four persisted artifacts ONCE, at module import time. Streamlit
-# re-runs this whole script top-to-bottom on every widget interaction, so
-# @st.cache_resource keeps joblib.load() from re-reading the files from
-# disk on every single click -- without it, every tab switch and every
-# form submission would reload all four artifacts again.
+# Streamlit re-runs this whole script on every click. @st.cache_resource makes
+# the artifacts load ONCE instead of on every interaction.
 # -----------------------------------------------------------------------
 @st.cache_resource
 def load_artifacts():
-    # regression_pipeline = joblib.load("lasso_regressor_for_sme_revenue.joblib")
-    # classification_pipeline = joblib.load("svc_classifier_for_sme_credit_risk.joblib")
-    # clustering_artifact = joblib.load("kmeans_mall_customer_segmentation.joblib")
-    # arm_artifact = joblib.load("apriori_recommendation_rules.joblib")
-    MODEL_DIR = "./model"
+    regression = joblib.load(MODEL_DIR / "best_revenue_pipeline.joblib")
+    classification = joblib.load(MODEL_DIR / "distress_risk_pipeline.joblib")
+    clustering = joblib.load(MODEL_DIR / "customer_segmentation_bundle.joblib")
+    arm = joblib.load(MODEL_DIR / "recommendation_rules_pipeline.joblib")
+    return regression, classification, clustering, arm
 
-    regression_pipeline = joblib.load(
-        os.path.join(MODEL_DIR, "lasso_regressor_for_sme_revenue.joblib")
-    )
 
-    classification_pipeline = joblib.load(
-        os.path.join(MODEL_DIR, "svc_classifier_for_sme_credit_risk.joblib")
-    )
-
-    clustering_artifact = joblib.load(
-        os.path.join(MODEL_DIR, "kmeans_mall_customer_segmentation.joblib")
-    )
-
-    arm_artifact = joblib.load(
-        os.path.join(MODEL_DIR, "apriori_recommendation_rules.joblib")
-    )
-    return regression_pipeline, classification_pipeline, clustering_artifact, arm_artifact
-
-regression_pipeline, classification_pipeline, clustering_artifact, arm_artifact = load_artifacts()
-clustering_scaler = clustering_artifact["scaler"]
-clustering_kmeans = clustering_artifact["kmeans"]
+regression_pipeline, classification_pipeline, clustering_bundle, arm_artifact = load_artifacts()
 recommendation_lookup = arm_artifact["recommendation_lookup"]
-sku_lookup = arm_artifact["sku_lookup"]
+item_lookup = arm_artifact["item_lookup"]  # index = show_id, column "item_name"
 
-st.set_page_config(page_title="BBT 4206 Model Validation Demos", page_icon="\U0001F4CA", layout="centered")
-st.title("BBT 4206 -- Model Validation Demos")
+# The pipelines remember the exact column order they were trained on.
+REGRESSION_FEATURES = list(regression_pipeline.feature_names_in_)
+CLASSIFICATION_FEATURES = list(classification_pipeline.feature_names_in_)
 
-tab_regression, tab_classification, tab_clustering, tab_arm = st.tabs([
-    "SME Revenue Regressor", "SME Credit Risk Classifier",
-    "Mall Customer Segmenter", "E-commerce Recommender",
+CLUSTER_FEATURES = clustering_bundle["features"]
+# ['recency_days', 'frequency_per_year', 'avg_order_value_kes', 'num_categories_purchased']
+
+st.set_page_config(page_title="Model Validation Demos", page_icon="\U0001F4CA")
+st.title("Model Validation Demos")
+
+tab_reg, tab_clf, tab_clu, tab_arm = st.tabs([
+    "Retail Revenue Regressor", "Financial Distress Classifier",
+    "Customer Segmenter", "Show Recommender",
 ])
 
 # -----------------------------------------------------------------------
-# 1. Regression
+# 1. Regression -- predict a retail store's daily revenue (KES)
 # -----------------------------------------------------------------------
-with tab_regression:
+with tab_reg:
     with st.form("regression_form"):
-        sector = st.text_input("Sector", "Technology")
-        county = st.text_input("County", "Nairobi")
-        quarter = st.text_input("Quarter", "Q3")
-        business_age_years = st.number_input("Business Age (years)", value=4.5)
-        num_employees = st.number_input("Number of Employees", value=12)
-        # These four categories are the exact set the pipeline's
-        # OrdinalEncoder was fitted on.
-        owner_education_level = st.selectbox(
-            "Owner Education Level",
-            ["Primary", "Secondary", "Tertiary", "Postgraduate"], index=1)
-        monthly_marketing_spend_kes = st.number_input("Monthly Marketing Spend (KES)", value=45000)
-        avg_daily_foot_traffic = st.number_input(
-            "Avg Daily Foot Traffic (leave 0 if not applicable)", value=0)
-        online_presence_score = st.number_input("Online Presence Score", value=78.0)
-        loan_amount_kes = st.number_input("Loan Amount (KES)", value=250000)
-        interest_rate_pct = st.number_input("Interest Rate (%)", value=14.5)
-        inflation_rate_pct = st.number_input("Inflation Rate (%)", value=6.5)
-        competitor_density = st.number_input("Competitor Density", value=5)
-        customer_satisfaction_score = st.number_input("Customer Satisfaction Score", value=4.2)
-        submitted = st.form_submit_button("Predict Revenue")
+        c1, c2 = st.columns(2)
+        store_format = c1.selectbox("Store format",
+                                    ["Convenience", "Hypermarket", "Kiosk", "Supermarket"], index=3)
+        location_type = c2.selectbox("Location type", ["CBD", "Mall", "Residential", "Street"], index=1)
+        delivery_available = c1.selectbox("Delivery available", ["Yes", "No"])
+        store_size_category = c2.selectbox("Store size category", ["Small", "Medium", "Large"], index=1)
+        store_age_years = c1.number_input("Store age (years)", min_value=0.0, value=0.5, step=0.5)
+        store_size_sqm = c2.number_input("Store size (sqm)", min_value=1.0, value=250.0)
+        promotions_active = c1.number_input("Active promotions", min_value=0, value=2, step=1)
+        footfall_count = c2.number_input("Daily footfall (visitors)", min_value=0.0, value=450.0)
+        online_order_count = c1.number_input("Online orders", min_value=0.0, value=28.0)
+        avg_basket_size_kes = c2.number_input("Average basket size (KES)", min_value=0.0, value=950.0)
+        basket_unknown = st.checkbox("Average basket size is unknown")
+        submitted_reg = st.form_submit_button("Predict daily revenue")
 
-    if submitted:
+    if submitted_reg:
         payload = {
-            "sector": sector, "county": county, "quarter": quarter,
-            "business_age_years": business_age_years, "num_employees": num_employees,
-            "owner_education_level": owner_education_level,
-            "monthly_marketing_spend_kes": monthly_marketing_spend_kes,
-            "avg_daily_foot_traffic": avg_daily_foot_traffic or None,
-            "online_presence_score": online_presence_score,
-            "loan_amount_kes": loan_amount_kes, "interest_rate_pct": interest_rate_pct,
-            "inflation_rate_pct": inflation_rate_pct,
-            "competitor_density": competitor_density,
-            "customer_satisfaction_score": customer_satisfaction_score,
+            "store_format": store_format, "location_type": location_type,
+            "delivery_available": delivery_available,
+            "store_size_category": store_size_category,
+            "store_age_years": store_age_years, "store_size_sqm": store_size_sqm,
+            "promotions_active": promotions_active, "footfall_count": footfall_count,
+            "online_order_count": online_order_count,
+            # NaN (not None) is what the pipeline's imputer understands.
+            "avg_basket_size_kes": np.nan if basket_unknown else avg_basket_size_kes,
         }
-        input_row = pd.DataFrame([payload])
+        input_row = pd.DataFrame([payload])[REGRESSION_FEATURES]
         predicted_log_revenue = regression_pipeline.predict(input_row)[0]
-        predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
-        st.success(f"Predicted monthly revenue: KES {predicted_revenue_kes:,.2f}")
+        # The model predicts log1p(revenue); expm1 converts it back to KES.
+        st.success(f"Predicted daily revenue: KES {float(np.expm1(predicted_log_revenue)):,.2f}")
 
 # -----------------------------------------------------------------------
-# 2. Classification
+# 2. Classification -- predict corporate financial distress risk
 # -----------------------------------------------------------------------
-with tab_classification:
+with tab_clf:
     with st.form("classification_form"):
-        sector2 = st.text_input("Sector", "Retail")
-        county2 = st.text_input("County", "Nairobi")
-        quarter2 = st.text_input("Quarter", "Q2")
-        loan_purpose = st.text_input("Loan Purpose", "Working Capital")
-        owner_education_level2 = st.selectbox(
-            "Owner Education Level",
-            ["Primary", "Secondary", "Tertiary", "Postgraduate"], index=1, key="oel2")
-        business_age_years2 = st.number_input("Business Age (years)", value=2.1, key="bay2")
-        num_employees2 = st.number_input("Number of Employees", value=4, key="ne2")
-        monthly_revenue_kes = st.number_input("Monthly Revenue (KES)", value=850000)
-        loan_amount_kes2 = st.number_input("Loan Amount (KES)", value=150000, key="lak2")
-        loan_term_months = st.number_input("Loan Term (months)", value=12)
-        interest_rate_pct2 = st.number_input("Interest Rate (%)", value=16.5, key="irp2")
-        collateral_value_kes = st.number_input("Collateral Value (leave 0 if unsecured)", value=0)
-        debt_to_income_ratio = st.number_input("Debt-to-Income Ratio", value=0.62)
-        credit_score = st.number_input("Credit Score", value=590)
-        num_previous_loans = st.number_input("Number of Previous Loans", value=1)
-        missed_payments_count = st.number_input("Missed Payments Count", value=3)
-        online_presence_score2 = st.number_input("Online Presence Score", value=40.0, key="ops2")
-        customer_satisfaction_score2 = st.number_input(
-            "Customer Satisfaction Score", value=3.4, key="css2")
-        competitor_density2 = st.number_input("Competitor Density", value=6, key="cd2")
-        submitted2 = st.form_submit_button("Predict Credit Risk")
+        c1, c2 = st.columns(2)
+        industry_sector = c1.selectbox("Industry sector",
+                                       ["Construction", "Energy", "Manufacturing", "Retail", "Technology"],
+                                       index=2)
+        listing_status = c2.selectbox("Listing status", ["Private", "Public"])
+        credit_rating_band = c1.selectbox("Credit rating band",
+                                          ["High Risk", "Speculative", "Investment Grade"], index=1)
+        audit_going_concern_flag = c2.selectbox("Auditor going-concern flag",
+                                                ["No", "Not Applicable", "Yes"])
+        years_in_operation = c1.number_input("Years in operation", min_value=0.0, value=15.0)
+        num_employees = c2.number_input("Number of employees", min_value=0, value=300, step=1)
+        debt_to_equity_ratio = c1.number_input("Debt-to-equity ratio", value=1.5)
+        current_ratio = c2.number_input("Current ratio", value=1.4)
+        interest_coverage_ratio = c1.number_input("Interest coverage ratio", value=3.0)
+        revenue_growth_pct = c2.number_input("Revenue growth (%)", value=5.0)
+        net_profit_margin_pct = c1.number_input("Net profit margin (%)", value=6.0)
+        working_capital_to_assets_ratio = c2.number_input("Working capital / total assets", value=0.15)
+        macroeconomic_interest_rate_pct = c1.number_input("Macro interest rate (%)", value=10.0)
+        submitted_clf = st.form_submit_button("Predict distress risk")
 
-    if submitted2:
+    if submitted_clf:
         payload = {
-            "sector": sector2, "county": county2, "quarter": quarter2,
-            "loan_purpose": loan_purpose, "owner_education_level": owner_education_level2,
-            "business_age_years": business_age_years2, "num_employees": num_employees2,
-            "monthly_revenue_kes": monthly_revenue_kes, "loan_amount_kes": loan_amount_kes2,
-            "loan_term_months": loan_term_months, "interest_rate_pct": interest_rate_pct2,
-            "collateral_value_kes": collateral_value_kes or None,
-            "debt_to_income_ratio": debt_to_income_ratio, "credit_score": credit_score,
-            "num_previous_loans": num_previous_loans,
-            "missed_payments_count": missed_payments_count,
-            "online_presence_score": online_presence_score2,
-            "customer_satisfaction_score": customer_satisfaction_score2,
-            "competitor_density": competitor_density2,
+            "industry_sector": industry_sector, "listing_status": listing_status,
+            "credit_rating_band": credit_rating_band,
+            "audit_going_concern_flag": audit_going_concern_flag,
+            "years_in_operation": years_in_operation, "num_employees": num_employees,
+            "debt_to_equity_ratio": debt_to_equity_ratio, "current_ratio": current_ratio,
+            "interest_coverage_ratio": interest_coverage_ratio,
+            "revenue_growth_pct": revenue_growth_pct,
+            "net_profit_margin_pct": net_profit_margin_pct,
+            "working_capital_to_assets_ratio": working_capital_to_assets_ratio,
+            "macroeconomic_interest_rate_pct": macroeconomic_interest_rate_pct,
         }
-        input_row = pd.DataFrame([payload])
+        input_row = pd.DataFrame([payload])[CLASSIFICATION_FEATURES]
         predicted_class = classification_pipeline.predict(input_row)[0]
-        predicted_probabilities = classification_pipeline.predict_proba(input_row)[0]
-        class_labels = classification_pipeline.named_steps["model"].classes_
-        st.success(f"Predicted credit risk category: {predicted_class}")
-        st.write({str(label): round(float(prob), 4)
-                  for label, prob in zip(class_labels, predicted_probabilities)})
+        probabilities = classification_pipeline.predict_proba(input_row)[0]
+        st.success(f"Predicted distress risk: {predicted_class}")
+        st.bar_chart(pd.Series(probabilities, index=[str(c) for c in classification_pipeline.classes_]))
 
 # -----------------------------------------------------------------------
-# 3. Clustering
+# 3. Clustering -- assign a customer to a segment
+#
+# K-Means was trained on STANDARDIZED data, so we scale the inputs with the
+# saved scaler first and only then predict. All four inputs are required.
 # -----------------------------------------------------------------------
-with tab_clustering:
+with tab_clu:
     with st.form("clustering_form"):
-        age = st.number_input("Age", min_value=1, max_value=100, value=27)
-        annual_income_k = st.number_input("Annual Income (k$)", min_value=0.0, value=45.0)
-        spending_score = st.number_input("Spending Score (1-100)", min_value=1, max_value=100, value=72)
-        submitted3 = st.form_submit_button("Predict Segment")
+        c1, c2 = st.columns(2)
+        recency_days = c1.number_input("Days since last purchase", min_value=0.0, value=20.0)
+        frequency_per_year = c2.number_input("Purchases per year", min_value=0.0, value=20.0)
+        avg_order_value_kes = c1.number_input("Average order value (KES)", min_value=0.0, value=9000.0)
+        num_categories_purchased = c2.number_input("Number of categories purchased", min_value=0.0, value=6.0)
+        submitted_clu = st.form_submit_button("Predict segment")
 
-    if submitted3:
+    if submitted_clu:
         input_row = pd.DataFrame([{
-            "Age": age,
-            "Annual Income (k$)": annual_income_k,
-            "Spending Score (1-100)": spending_score,
-        }])
-        scaled_input = clustering_scaler.transform(input_row)
-        cluster = int(clustering_kmeans.predict(scaled_input)[0])
-        st.success(f"Assigned segment: Cluster {cluster}")
+            "recency_days": recency_days,
+            "frequency_per_year": frequency_per_year,
+            "avg_order_value_kes": avg_order_value_kes,
+            "num_categories_purchased": num_categories_purchased,
+        }])[CLUSTER_FEATURES]
+        scaled_row = clustering_bundle["scaler"].transform(input_row)
+        raw_cluster = int(clustering_bundle["kmeans"].predict(scaled_row)[0])
+        # Translate K-Means' raw label into the numbered segment used in the report.
+        cluster_id = clustering_bundle["label_map"][raw_cluster]
+        st.success(f"Segment {cluster_id}: {clustering_bundle['segment_names'][cluster_id]}")
 
 # -----------------------------------------------------------------------
-# 4. Association Rule Mining
+# 4. Association rules -- recommend shows for a viewer's watch list
 # -----------------------------------------------------------------------
 with tab_arm:
     with st.form("arm_form"):
-        cart_text = st.text_input("Cart (comma-separated SKUs)", "H06, H07")
-        top_n = st.number_input("Top N Recommendations", min_value=1, value=3)
-        submitted4 = st.form_submit_button("Get Recommendations")
+        watched = st.multiselect(
+            "Shows already watched", options=list(item_lookup.index),
+            default=["S04"],
+            format_func=lambda sid: f"{item_lookup.loc[sid, 'item_name']} ({sid})")
+        top_n = st.number_input("How many recommendations?", min_value=1, max_value=10, value=3, step=1)
+        submitted_arm = st.form_submit_button("Get recommendations")
 
-    if submitted4:
-        cart = {sku.strip() for sku in cart_text.split(",") if sku.strip()}
-        candidates = {}
-        for antecedent, consequent_list in recommendation_lookup.items():
-            if antecedent.issubset(cart):
-                for sku, confidence, lift in consequent_list:
-                    if sku not in cart:
-                        if sku not in candidates or confidence > candidates[sku][0]:
-                            candidates[sku] = (confidence, lift)
-
-        ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:int(top_n)]
-        if not ranked:
-            st.warning("No recommendations for this cart -- try a SKU combination seen in the training orders.")
+    if submitted_arm:
+        if not watched:
+            st.error("Please pick at least one show.")
         else:
-            for sku, (confidence, lift) in ranked:
-                st.write(f"**{sku_lookup.loc[sku, 'product_name']}** ({sku}) "
-                         f"-- confidence {confidence:.1%}, lift {lift:.2f}")
+            watched_set = set(watched)
+            candidates = {}
+            for antecedent, consequents in recommendation_lookup.items():
+                if antecedent.issubset(watched_set):  # the rule's "if" part is fully satisfied
+                    for show_id, confidence, lift in consequents:
+                        if show_id not in watched_set:
+                            if show_id not in candidates or confidence > candidates[show_id][0]:
+                                candidates[show_id] = (confidence, lift)
+            ranked = sorted(candidates.items(), key=lambda kv: kv[1][0], reverse=True)[:int(top_n)]
+            if not ranked:
+                st.warning("No rule matches this combination -- try a different set of shows.")
+            else:
+                for show_id, (confidence, lift) in ranked:
+                    st.write(f"**{item_lookup.loc[show_id, 'item_name']}** ({show_id}) -- "
+                             f"confidence {confidence:.1%}, lift {lift:.2f}")
